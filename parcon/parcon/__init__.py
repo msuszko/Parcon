@@ -1981,7 +1981,7 @@ class Regex(_RParser):
         return "Regex(%s, %s)" % (repr(self.regex.pattern), repr(self.groups_only))
 
 
-class Expected(Parser):
+class Expected(_RParser):
     """
     A parser that allows customization of the error message provided when the
     parser it's created with fails. For example, let's say that you had a
@@ -2036,6 +2036,9 @@ class Expected(Parser):
         if not result:
             return failure([(position, ECustomExpectation(self.expected_message))])
         return result
+
+    def create_railroad(self, options):
+        return _rr.create_railroad(self.parser, options)
     
     def __repr__(self):
         return "Expected(%s, %s, %s)" % (repr(self.parser),
