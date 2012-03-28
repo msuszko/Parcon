@@ -49,15 +49,17 @@ draw_functions = {}
 
 plain_font = pango.FontDescription("sans 10")
 bold_font = pango.FontDescription("sans bold 10")
+italic_font = pango.FontDescription("sans italic 10")
+bold_italic_font = pango.FontDescription("sans bold italic 10")
 title_font = pango.FontDescription("sans bold 14")
 default_line_size = 2
 
 def create_options(map):
     return options.Options(map,
-        raildraw_production_font=bold_font,
+        raildraw_production_font=plain_font,
         raildraw_text_font=bold_font,
         raildraw_anycase_font=plain_font,
-        raildraw_description_font=plain_font,
+        raildraw_description_font=italic_font,
         raildraw_title_font=title_font,
         raildraw_title_before=45,
         raildraw_title_after=45,
@@ -475,7 +477,7 @@ def draw_to_png(diagram, options, filename, forward=True):
     some point.
     """
     if not isinstance(diagram, dict):
-        diagram = {"": dict}
+        diagram = {"": diagram}
     options = create_options(options)
     before_title = options.raildraw_title_before
     after_title = options.raildraw_title_after

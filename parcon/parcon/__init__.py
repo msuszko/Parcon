@@ -141,7 +141,9 @@ Pair = collections.namedtuple("Pair", ("key", "value"))
 
 
 class ParseException(Exception):
-    pass
+    def __init__(self, message, expectations=None):
+        Exception.__init__(self, message)
+        self.expectations = expectations
 
 
 class Expectation(object):
@@ -451,8 +453,17 @@ def format_expectations(position, expectations):
     
     Position is the position to use for n. Expectations is the list of strings
     to use for x, y, and z.
+    
+    Note that if there is only one expectation, the message will instead look
+    like:
+    
+    At position n: expected x
     """
-    return "At position %s: expected one of %s" % (position, ", ".join(expectations))
+    if len(expectations) == 1:
+        multi_message = ""
+    else:
+        multi_message = "one of "
+    return "At position %s: expected %s%s" % (position, multi_message, ", ".join(expectations))
 
 
 def format_failure(expected):
@@ -565,6 +576,10 @@ def op_and(first, second):
     return NotImplemented
 
 def op_call(parser, *args, **kwargs):
+    if(args):
+        raise Exception("some_parser(...) cannot contain any positional arguments")
+    if(len(kwargs) != 1):
+        raise Exception("some_parser(...) must specify exactly one keyword argument, not " + len(kwargs))
     if kwargs.get("name") is not None:
         return Name(kwargs["name"], parser)
     if kwargs.get("desc") is not None:
@@ -616,7 +631,7 @@ class Parser(object):
             # and if it is, we return the value.
             if whitespace.consume(string, result.end, len(string)) == len(string):
                 return result.value
-        raise ParseException("Parse failure: " + format_failure(result.expected))
+        raise ParseException("Parse failure: " + format_failure(result.expected), result.expected)
     
     def consume(self, text, position, end):
         result = self.parse(text, position, end, Invalid())
@@ -1311,7 +1326,9 @@ class Exact(_GRParser):
         graph.add_edge(id(self), id(self.parser), label="parser")
         if not isinstance(self.space_parser, Invalid):
             graph.add_edge(id(self), id(self.space_parser), label="space")
-        return [self.parser]
+            return [self.parser, self.space_parser]
+        else:
+            return [self.parser]
     
     def create_railroad(self, options):
         return _rr.create_railroad(self.parser, options)
@@ -1812,7 +1829,7 @@ class Present(_GParser):
     probably want to use Preserve instead.
     """
     def __init__(self, parser):
-        self.parser = parser
+        self.parser = promote(parser)
     
     def parse(self, text, position, end, space):
         result = self.parser.parse(text, position, end, space)
@@ -1838,7 +1855,7 @@ class Preserve(_GParser):
     parser returned, even though it doesn't consume any input.
     """
     def __init__(self, parser):
-        self.parser = parser
+        self.parser = promote(parser)
     
     def parse(self, text, position, end, space):
         result = self.parser.parse(text, position, end, space)
@@ -1856,7 +1873,7 @@ class Preserve(_GParser):
         return "Present(%s)" % repr(self.parser)
 
 
-class And(_GParser):
+class And(_GRParser):
     """
     A parser that matches whatever its specified parser matches as long as its
     specified check_parser also matches at the same location. This could be
@@ -1886,6 +1903,9 @@ class And(_GParser):
         graph.add_edge(id(self), id(self.check_parser), label="check")
         graph.add_edge(id(self), id(self.parser), label="result")
         return [self.parser, self.check_parser]
+    
+    def create_railroad(self, options):
+        return _rr.create_railroad(self.parser, options)
     
     def __repr__(self):
         return "And(%s, %s)" % (repr(self.parser), repr(self.check_parser))
@@ -2091,7 +2111,7 @@ class Limit(Parser):
         return "Limit(%s, %s)" % (repr(self.length), repr(self.parser))
 
 
-class Tag(_GParser):
+class Tag(_GRParser):
     """
     A parser that "tags", so to speak, the value returned from its underlying
     parser. Specifically, you construct a Tag instance by specifying a tag and
@@ -2132,6 +2152,7 @@ class Tag(_GParser):
     def __init__(self, tag, parser):
         self.tag = tag
         self.parser = parser
+        self.railroad_children = [parser]
     
     def parse(self, text, position, end, space):
         result = self.parser.parse(text, position, end, space)
@@ -2144,6 +2165,9 @@ class Tag(_GParser):
         graph.add_node(id(self), label="Tag:\n%s" % repr(self.tag))
         graph.add_edge(id(self), id(self.parser))
         return [self.parser]
+    
+    def create_railroad(self, options):
+        return _rr.create_railroad(self.parser, options)
     
     def __repr__(self):
         return "Tag(%s, %s)" % (repr(self.tag), repr(self.parser))
@@ -2244,6 +2268,27 @@ class Description(_GRParser):
 
 
 Desc = Description
+
+
+def separated(item_parser, separator_parser):
+    """
+    Creates and returns a parser that will parse one or more items parsed by
+    item_parser, separated by separator_parser. The result of the parser is a
+    list of the items produced by item_parser.
+    
+    Both item_parser and separator_parser will be automatically promote()d, so
+    a string such as ",", for example, could be used as separator_parser
+    without having to wrap it in a Literal first.
+    """
+    item_parser, separator_parser = promote(item_parser), promote(separator_parser)
+    # The translating of item_parser's result to be placed in a tuple is to
+    # prevent the + concatenating it with the ()[...] from filtering it out if
+    # the item_parser results in None. Ideally, there should be some way to
+    # create a Then while telling it not to filter out None instances. 
+    return (item_parser[lambda a: (a,)] + (~separator_parser + item_parser)[...])[lambda (a, rest): [a] + rest]
+
+
+delimited = separated
 
 
 def flatten(value):
